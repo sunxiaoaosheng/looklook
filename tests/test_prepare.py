@@ -34,10 +34,17 @@ class Files(unittest.TestCase):
   target=self.root/'作品.mp4';target.write_bytes(b'old');candidate=self.ctx.temp('.mp4','候选');candidate.write_bytes(b'new');self.ctx.seal(candidate)
   with self.assertRaises(p.MaterialError):p.publish_video(candidate,target,self.ctx)
   self.assertEqual(target.read_bytes(),b'old')
+ @patch.object(p,'find_tool',new=lambda name: 'fixture-'+name)
  def test_preflight_missing_model_does_not_invent_asr_call(self):
   with patch.object(p,'run',return_value='没有模型'):
-   with self.assertRaises(p.MaterialError):p.transcribe('video',self.ctx,'macwhisper','auto',10)
-  self.assertFalse(self.ctx.attempts)
+   with self.assertRaises(p.MaterialError) as error:p.transcribe('video',self.ctx,'macwhisper','auto',10)
+  self.assertEqual(error.exception.code,'model_missing');self.assertFalse(self.ctx.attempts)
+ def test_missing_mw_is_preflight_failure_without_asr_attempt(self):
+  self.ctx.asr_model={'id':'existing:model','name':'已有模型'}
+  with patch.object(p,'find_tool',side_effect=p.MaterialError('tool_missing','没有 mw')),patch.object(p,'run') as run:
+   with self.assertRaises(p.MaterialError) as error:p.transcribe('video',self.ctx,'macwhisper','auto',10)
+  self.assertEqual(error.exception.code,'tool_missing');self.assertFalse(self.ctx.attempts);run.assert_not_called()
+ @patch.object(p,'find_tool',new=lambda name: 'fixture-'+name)
  def test_true_backend_fallback_uses_two_calls(self):
   self.ctx.asr_model={'id':'existing:model','name':'模型'}
   with patch.object(p,'run',side_effect=p.MaterialError('backend_failed','识别失败')):
@@ -53,6 +60,7 @@ class Files(unittest.TestCase):
    with self.assertRaises(p.MaterialError):p.run([sys.executable,'-c','import time;time.sleep(20)'],self.ctx,'test',.1)
    self.assertIsNone(unrelated.poll());self.assertFalse(self.ctx.children)
   finally:unrelated.terminate();unrelated.wait()
+ @patch.object(p,'find_tool',new=lambda name: 'fixture-'+name)
  def test_transcription_attempts_limit_and_review_selection(self):
   self.ctx.asr_model={'id':'existing:model','name':'已有模型'}
   with patch.object(p,'run',return_value='1\n00:00:00,000 --> 00:00:10,000\n第一遍\n'):
@@ -63,6 +71,7 @@ class Files(unittest.TestCase):
   with patch.object(p,'emit'),patch.object(p,'review_action',return_value={'action':'accept','attempt':1}):
    chosen=p.review_transcript('video',self.ctx,first,SimpleNamespace(asr_language='auto',timeout=10),{'duration':10})
   self.assertEqual(chosen['text'],'第一遍');self.assertEqual([a['language'] for a in self.ctx.attempts],['auto','zh'])
+ @patch.object(p,'find_tool',new=lambda name: 'fixture-'+name)
  def test_failed_call_counts_and_can_fallback_once(self):
   self.ctx.asr_model={'id':'existing:model','name':'模型'}
   with patch.object(p,'run',side_effect=p.MaterialError('backend_failed','失败')):
@@ -231,7 +240,8 @@ class Media(unittest.TestCase):
    if label=='ytdlp_media':
     dst=Path(command[-1]);dst.write_bytes((self.voice if dst.suffix=='.m4a' else self.silent).read_bytes());return ''
    return original(command,ctx,label,timeout)
-  with patch.object(p,'run',side_effect=run):final,props=p.ytdlp_download('https://www.bilibili.com/video/BVtest',self.ctx,30,info)
+  original_find=p.find_tool
+  with patch.object(p,'find_tool',side_effect=lambda name:'fixture-yt-dlp' if name=='yt-dlp' else original_find(name)),patch.object(p,'run',side_effect=run):final,props=p.ytdlp_download('https://www.bilibili.com/video/BVtest',self.ctx,30,info)
   self.assertTrue(props['has_audio']);self.assertTrue(final.exists());self.assertTrue(all(str(x).startswith(str(self.ctx.root)) for x in self.ctx.owned))
  def test_mismatched_audio_cannot_be_published(self):
   short=self.root/'短音频.m4a';subprocess.run([p.find_tool('ffmpeg'),'-hide_banner','-v','error','-i',str(self.voice),'-t','1','-c','copy',str(short)],check=True)

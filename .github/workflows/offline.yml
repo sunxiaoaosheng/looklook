@@ -5,6 +5,7 @@ jobs:
     runs-on: macos-latest
     env:
       LOOKLOOK_STATE_ROOT: /tmp/looklook-ci-state
+      LOOKLOOK_CONFIG: /tmp/looklook-ci-no-personal-config.json
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v4
@@ -14,6 +15,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: 准备真实媒体测试依赖
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            brew install ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
+          ffmpeg -hide_banner -encoders | grep libx264
+      - name: 统一本机子进程解释器
+        run: python3 -c "import sys; print('LOOKLOOK_PYTHON=' + sys.executable)" >> "$GITHUB_ENV"
       - run: python3 -m unittest discover -s tests -p 'test_*.py'
       - run: python3 -m unittest discover -s scripts/looklook-bridge/tests -p 'test_*.py'
       - run: node --test tests/test_browser.mjs scripts/looklook-bridge/tests/*.test.mjs
