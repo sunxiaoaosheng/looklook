@@ -1,0 +1,2 @@
+# 标准补丁的空白上下文行保留格式所需的单个空格。
+*.patch whitespace=-blank-at-eol

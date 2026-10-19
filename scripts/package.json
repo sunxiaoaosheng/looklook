@@ -1,0 +1,8 @@
+{
+  "name": "looklook-scripts",
+  "private": true,
+  "description": "looklook 抖音浏览器后备所需依赖（只用 playwright-core 驱动本机 Google Chrome，不下载浏览器）",
+  "dependencies": {
+    "playwright-core": "1.63.0"
+  }
+}

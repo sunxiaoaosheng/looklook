@@ -1,0 +1,7 @@
+{
+  "name": "looklook-mcp",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "server.js"
+}

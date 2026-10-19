@@ -1,0 +1,20 @@
+name: 离线验证
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: macos-latest
+    env:
+      LOOKLOOK_STATE_ROOT: ${{ runner.temp }}/looklook-state
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - run: python3 -m unittest discover -s scripts/looklook-bridge/tests -p 'test_*.py'
+      - run: node --test tests/test_browser.mjs scripts/looklook-bridge/tests/*.test.mjs
+      - run: python3 scripts/release.py

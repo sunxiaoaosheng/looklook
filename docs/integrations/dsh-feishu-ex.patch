@@ -1,0 +1,105 @@
+diff --git a/lib/feishu.js b/lib/feishu.js
+index fbf2900..d0a8092 100644
+--- a/lib/feishu.js
++++ b/lib/feishu.js
+@@ -1,7 +1,8 @@
+ // Feishu Open Platform HTTPS client (in-process, no subprocess needed).
+-// Uses rejectUnauthorized:false so the long connection works behind corporate
+-// MITM proxies / on Windows boxes with broken certificate stores.
++// 校验证书；企业代理使用显式配置的受信任证书，不关闭验证。
+ import https from 'node:https'
++import { readFileSync } from 'node:fs'
++import { Readable } from 'node:stream'
+ import { URL } from 'node:url'
+ 
+ const FEISHU_API = 'https://open.feishu.cn/open-apis'
+@@ -15,13 +16,17 @@ export function httpRequest(urlStr, method = 'GET', headers = {}, body) {
+       port: url.port || (url.protocol === 'https:' ? 443 : 80),
+       path: url.pathname + url.search,
+       headers: headers || {},
+-      rejectUnauthorized: false,
++      rejectUnauthorized: true,
++      ...(process.env.LOOKLOOK_CA_FILE?{ca:readFileSync(process.env.LOOKLOOK_CA_FILE)}:{}),
+     }
+-    const payload = body === undefined || body === null ? null : Buffer.isBuffer(body) ? body : Buffer.from(String(body), 'utf8')
++    const streaming=body instanceof Readable
++    const payload = streaming?null:body === undefined || body === null ? null : Buffer.isBuffer(body) ? body : Buffer.from(String(body), 'utf8')
+     if (payload !== null) opts.headers['Content-Length'] = payload.length
+     const req = https.request(opts, (res) => {
+       const chunks = []
+-      res.on('data', (c) => chunks.push(c))
++      let size=0
++      res.on('error',reject)
++      res.on('data', (c) => {size+=c.length;if(size>4*1024*1024){res.destroy(new Error('feishu response too large'));return}chunks.push(c)})
+       res.on('end', () => {
+         const text = Buffer.concat(chunks).toString('utf8')
+         let json = null
+@@ -30,6 +35,10 @@ export function httpRequest(urlStr, method = 'GET', headers = {}, body) {
+       })
+     })
+     req.on('error', reject)
++    req.setTimeout(120000,()=>req.destroy(new Error('feishu request timeout')))
++    const total=setTimeout(()=>req.destroy(new Error('feishu total timeout')),300000)
++    req.on('close',()=>clearTimeout(total))
++    if(streaming){body.on('error',e=>req.destroy(e));req.on('error',()=>body.destroy());body.pipe(req);return}
+     if (payload !== null) req.write(payload)
+     req.end()
+   })
+diff --git a/lib/index.js b/lib/index.js
+index 0887fef..b623e94 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -3,6 +3,8 @@
+ // delegates each message to a subagent of the bound workspace's session,
+ // and sends the text reply back to the Feishu chat. Also registers a
+ // `feishu_send_message` model tool and the settings HTTP routes.
++import { resumeLooklook, stopLooklook } from './looklook.js'
++import { httpRequest } from './feishu.js'
+ import { FeishuClient } from './feishu.js'
+ import { FeishuWsClient } from './ws.js'
+ import { FeishuRouter } from './router.js'
+@@ -109,6 +111,7 @@ export async function apply(ctx, config) {
+       onError: (e) => logErr('ws:', e),
+     })
+     ws.start()
++    resumeLooklook(router,httpRequest).catch(e=>logErr('looklook 恢复：',String(e)))
+     log('🔌 feishu ws client starting')
+   }
+ 
+@@ -258,6 +261,7 @@ export async function apply(ctx, config) {
+   // ---- lifecycle: everything reversible ----
+   ctx.effect(() => () => {
+     disposed = true
++    stopLooklook(router)
+     if (routesState.dispose) {
+       try { routesState.dispose() } catch (e) { /* ignore */ }
+       routesState.dispose = null
+diff --git a/lib/looklook.js b/lib/looklook.js
+index 4083ad2..f637d30 100644
+--- a/lib/looklook.js
++++ b/lib/looklook.js
+@@ -47,3 +47,11 @@ export function createLooklookBridge({
+ }
+ 
+ export const handleLooklook = createLooklookBridge()
++
++// 在宿主启动时恢复已持久化任务；未安装技能时普通聊天仍独立工作。
++export async function resumeLooklook(router,httpRequest) {
++  const file=process.env.DSH_LOOKLOOK_ADAPTER||join(homedir(),'.agents/skills/looklook/scripts/looklook-bridge/dsh-adapter/adapter.js')
++  try { const adapter=await import(pathToFileURL(file).href); if(adapter.resumeLooklook)await adapter.resumeLooklook(router,httpRequest) }
++  catch(error){ if(error.code!=='ERR_MODULE_NOT_FOUND')router.logErr('looklook 恢复失败：',String(error)) }
++}
++export function stopLooklook(router){router.looklookHandler?.stop?.()}
+diff --git a/lib/router.js b/lib/router.js
+index f262bfe..ddc611f 100644
+--- a/lib/router.js
++++ b/lib/router.js
+@@ -88,7 +88,7 @@ export class FeishuRouter {
+     } catch (e) { text = msg.content || '' }
+     if (!messageId) { this.logErr('skip: no message_id'); return }
+     // 在普通消息去重之前处理；looklook 适配器自行管理内存去重和回传。
+-    if (await this.dispatchLooklook(this, { text, senderOpenId, chatId, messageId }, httpRequest)) return
++    if (await this.dispatchLooklook(this, { text, senderOpenId, chatId, messageId, chatType:msg.chat_type }, httpRequest)) return
+     if (this.seen.has(messageId)) return
+     this.seen.add(messageId)
+     if (!text || !chatId) { this.logErr('skip: empty text/chatId'); return }

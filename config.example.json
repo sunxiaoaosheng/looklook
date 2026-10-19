@@ -1,0 +1,8 @@
+{
+  "storage_root": "~/Documents/looklookFiles",
+  "state_root": "~/Library/Application Support/looklook",
+  "provider_chain": ["claude", "codex", "deepseek", "ollama"],
+  "wechat_video_limit": 20000000,
+  "feishu_video_limit": 28000000,
+  "feishu_allowed_senders": []
+}

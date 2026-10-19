@@ -1,0 +1,6 @@
+interface:
+  display_name: "looklook"
+  short_description: "给抖音或B站链接，直接获得观点评价、深入分析、事实核验或操作步骤"
+  default_prompt: "使用 $looklook 分析这段内容。我已看过视频，请直接给出你的判断、理由和启发："
+policy:
+  allow_implicit_invocation: true
