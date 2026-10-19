@@ -4,7 +4,7 @@ jobs:
   test:
     runs-on: macos-latest
     env:
-      LOOKLOOK_STATE_ROOT: ${{ runner.temp }}/looklook-state
+      LOOKLOOK_STATE_ROOT: /tmp/looklook-ci-state
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v4
