@@ -1,3 +1,4 @@
+import {ChoiceWorker} from '../choice-worker.js';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -61,6 +62,7 @@ export function createDispatchHook({ queue, conversation, pluginConfig = {} }) {
     if(control!==null)return {handled:true,text:control};
     const outcome = conversation.handle(key, event.content ?? event.body ?? '', ctx.messageId || event.messageId || null);
     const base = { scope: scopeOf([agentId || '', channel, ctx.accountId || '', sender, sessionKey || '']), _agentId:agentId, ...profile };
+    queue.choiceWorker?.remember(key, {target:sender,accountId:ctx.accountId},base);
     const text = await conversationReply(outcome, queue, { target: sender, accountId: ctx.accountId }, base);
     if (text === null) return undefined;
     return text ? { handled: true, text } : { handled: true };
@@ -83,7 +85,9 @@ export function createCommand(api, execute = invoke, queue = null, pluginConfig 
         const key = scopeOf([context.agentId || '', channel, context.accountId || '', target]);
         const control=await queue.control({target,accountId:context.accountId},'look '+context.args);if(control!==null)return {text:control};
         const base = { scope: requestFor(context, '').scope, _agentId:context.agentId, ...profile };
-        const text = await conversationReply(conversation.handle(key, 'looklook ' + context.args), queue, { target, accountId: context.accountId }, base);
+        const outcome=conversation.handle(key, 'looklook ' + context.args);
+        queue.choiceWorker?.remember(key,{target,accountId:context.accountId},base);
+        const text = await conversationReply(outcome, queue, { target, accountId: context.accountId }, base);
         return { text: text ?? '请发送一个视频分享链接。' };
       }
       const request = requestFor(context, context.args, profile);
@@ -130,10 +134,11 @@ export default {
     if (['cli-metadata', 'setup-only', 'setup-runtime'].includes(mode)) return;
     const queue = mode === 'full' ? new WechatQueue({api, execute:invoke, autoResume:false, persistent:true, storePath:queueStorePath(api), authorize:s=>authorizeStoredWechat(api,s)}) : null;
     const conversation = new PersistentConversation('wechat-conversation');
+    if(queue)queue.choiceWorker=new ChoiceWorker({namespace:'wechat-choices',conversation,queue,authorize:r=>authorizeStoredWechat(api,{route:r.route,request:r.base})});
     if (queue && api.registerService) api.registerService({
       id: 'looklook-wechat-worker',
-      start: () => { queue.schedule(0); },
-      stop: () => { queue.stop(); },
+      start: () => { queue.choiceWorker.start(); queue.schedule(0); },
+      stop: () => { queue.choiceWorker.stop(); queue.stop(); },
     });
     // 各运行模式都登记钩子（便于 inspect 核验）；只有完整运行时有队列，才真正接管消息。
     if (api.on) {

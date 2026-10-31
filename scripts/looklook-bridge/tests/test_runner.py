@@ -5,6 +5,9 @@ spec=importlib.util.spec_from_file_location('runner',Path(__file__).parents[1]/'
 r=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(r)
 class RunnerTests(unittest.TestCase):
+ def setUp(self):
+  mock=patch.object(r,'verify_material',return_value={'status':'failed','claims':[],'errors':[]});mock.start();self.addCleanup(mock.stop)
+
  def test_inputs_scopes_and_purposes(self):
   for body in ('口令',str(Path(__file__).resolve())):
    with self.assertRaises(r.JobError):r.parse_request({'input':body})
@@ -60,7 +63,7 @@ class RunnerTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as t,patch.object(r,'call_provider',side_effect=fake):
    answer=r.analyze({},'目的',r.prepare.Context(Path(t)),'credibility','normal')
   self.assertEqual(calls,['claude','codex','deepseek'])
-  self.assertIn('分析模型：DeepSeek Flash',answer);self.assertIn('已自动改用 DeepSeek Flash',answer);self.assertIn('未联网核验',answer)
+  self.assertIn('分析模型：DeepSeek Flash',answer);self.assertIn('已自动改用 DeepSeek Flash',answer);self.assertIn('联网核验失败',answer)
  def test_named_model_is_not_silently_replaced(self):
   with tempfile.TemporaryDirectory() as t,patch.object(r,'call_provider',side_effect=r.ProviderError('额度不足')) as call:
    with self.assertRaises(r.JobError) as e:r.analyze({},'目的',r.prepare.Context(Path(t)),'evaluate','normal','codex')
@@ -98,7 +101,7 @@ if __name__=='__main__':unittest.main()
 class MissingProgramTests(unittest.TestCase):
  def test_missing_claude_falls_back_but_named_model_fails(self):
   with tempfile.TemporaryDirectory() as t:
-   material={'transcript':{'text':str(Path(t)/'v.txt')}};ctx=r.prepare.Context(Path(t))
+   material={'transcript':{'text':str(Path(t)/'v.txt')},'verification':{'status':'failed','claims':[]}};ctx=r.prepare.Context(Path(t))
    with patch.object(r,'run_capture',side_effect=FileNotFoundError('missing')),patch.object(r,'call_codex',return_value='正文'*100) as codex:
     answer=r.analyze(material,'目的',ctx,files=Path(t));self.assertIn('Codex',answer);codex.assert_called_once()
    with patch.object(r,'run_capture',side_effect=FileNotFoundError('missing')):

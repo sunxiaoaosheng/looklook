@@ -32,7 +32,7 @@ const NO_DETAIL = new Set(['video', 'text']);
 export const MODE_PROMPT = [
   '想怎么处理这条视频？',
   ...MODE_ORDER.map((m, i) => `${MODE_LABELS[m].replace(' ', ` ${i + 1} `)}${m === 'other' ? '，请直接说明' : ''}`),
-  '（回复表情、数字或文字都可以；回复“取消”退出）',
+  '（回复表情、数字或文字都可以；回复“取消”退出。30秒未回复，默认 🙊 评价 + 🐣 日常）',
 ].join('\n');
 export const DETAIL_PROMPT = '希望回复多详细？\n' + DETAIL_ORDER.map((d, i) => DETAIL_LABELS[d].replace(' ', ` ${i + 1} `)).join('　');
 const OTHER_PROMPT = '请直接说明想怎么处理这条视频（例如“总结成三点”）。';
@@ -150,6 +150,7 @@ export class LooklookConversation {
       }
       if (!mode) return { kind: 'reply', text: MODE_PROMPT };
       state.mode = mode;
+      state.detail = pick(DETAIL_WORDS, t);
       return this.advance(key, state);
     }
     if (state.step === 'other') {
@@ -172,7 +173,7 @@ export class LooklookConversation {
       source: entry.source, debug: entry.debug, model: entry.model, purpose,
       mode: purpose ? parseMode(purpose) || 'other' : null,
       detail: purpose ? parseDetail(purpose) : null,
-      queue, updatedAt: this.now(), step: null,
+      queue, updatedAt: this.now(), deadline: this.now() + 30000, step: null,
     };
     this.states.set(key, state);
     return this.advance(key, state);
@@ -195,6 +196,15 @@ export class LooklookConversation {
       text += '\n\n下一条链接：' + next.source + '\n' + r.text;
     }
     return { kind: 'submit', jobs: [job], text };
+  }
+
+  expire(key) {
+    const current = this.states.get(key);
+    if (!current || this.now() < (current.deadline || current.updatedAt + 30000)) return null;
+    // 切换和“其他”缺少明确目的，不替用户作决定。
+    if (current.step === 'switch' || current.step === 'other') return null;
+    current.mode ||= 'evaluate'; current.detail ||= 'normal';
+    return this.advance(key, current);
   }
 
   question(state) {

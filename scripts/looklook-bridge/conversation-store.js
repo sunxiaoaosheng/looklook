@@ -3,6 +3,7 @@ import {state} from './runtime.js';
 // 一个 scope 对应一笔事务记录，重复投递重放原决定；任务队列负责执行去重。
 export class PersistentConversation extends LooklookConversation{
  constructor(namespace){super();this.namespace=namespace;}
+ commitExpiry(key){const saved=state('get',this.namespace,key)||{states:[],events:[]};saved.states=saved.states.filter(([k])=>k!==key);const next=this.states.get(key);if(next)saved.states.push([key,next]);state('put',this.namespace,key,saved);}
  handle(key,text,messageId=null){
   const saved=state('get',this.namespace,key)||{states:[],events:[]};
   this.states=new Map(saved.states);const events=new Map(saved.events.filter(([,v])=>Date.now()-v.at<900000));

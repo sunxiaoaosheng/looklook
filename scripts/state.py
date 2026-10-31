@@ -28,7 +28,7 @@ class Store:
     def release(self,key,owner):self.db.execute('DELETE FROM leases WHERE key=? AND owner=?',(key,owner))
     def prune(self):
         for ns,key,value,updated in self.db.execute('SELECT * FROM records').fetchall():
-            v=json.loads(value);ttl=86400 if v.get('status') in ('sent','completed') else 604800 if v.get('status') in ('failed','delivery_failed','cancelled') else None
+            v=json.loads(value);ttl=86400 if v.get('status') in ('sent','completed') else 604800 if v.get('status') in ('failed','delivery_failed','cancelled') else 604800 if ns=='verification' and v.get('status')=='processing' else None
             if ttl and time.time()-updated>ttl:self.db.execute('DELETE FROM records WHERE namespace=? AND key=?',(ns,key))
     def close(self):self.db.close()
 def fingerprint(path):

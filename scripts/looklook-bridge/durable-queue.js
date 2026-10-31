@@ -4,9 +4,9 @@ import {spawn} from 'node:child_process';
 import {dirname,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {statSync,lstatSync,unlinkSync} from 'node:fs';
-import {state,python,invoke,config} from './runtime.js';
+import {state,python,invoke,config,scriptPath} from './runtime.js';
 import {numberedParts,deliveryText} from './delivery.js';
-const script=resolve(dirname(fileURLToPath(import.meta.url)),'../video_delivery.py');
+const script=scriptPath('video_delivery.py');
 export const idFor=(route,request)=>createHash('sha256').update(JSON.stringify([route,request])).digest('hex').slice(0,24);
 export class DurableQueue {
  constructor({namespace,execute=invoke,sendText,sendMedia,authorize=()=>true,persistent=true,stateRoot,retryMs=1000,autoResume=true,prepareVideo}={}){

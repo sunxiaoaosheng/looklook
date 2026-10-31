@@ -1,3 +1,4 @@
+import {ChoiceWorker} from '../choice-worker.js';
 import {randomUUID,createHash} from 'node:crypto';
 import {createReadStream,readFileSync,existsSync} from 'node:fs';
 import {Readable} from 'node:stream';
@@ -36,6 +37,7 @@ export function createHandler({allowedSenders,httpRequest,execute=invoke,convers
   }
   return deliver(id,s,signal);
  };
+ const choices=new ChoiceWorker({namespace:'feishu-choices',conversation,queue:q,authorize:r=>isAllowed(r.route.sender)&&r.route.account===account()});
  const handler=async(router,{text,senderOpenId,chatId,messageId,chatType})=>{
   routerRef=router;
   if(!isAllowed(senderOpenId)||chatType!=='p2p'||!chatId||!messageId)return isLooklook(text);
@@ -43,12 +45,13 @@ export function createHandler({allowedSenders,httpRequest,execute=invoke,convers
   if(control!==null){await router.client.sendMessage(chatId,control);return true;}
   const scope=createHash('sha256').update(JSON.stringify(['dsh-feishu',senderOpenId,chatId])).digest('hex');
   const outcome=conversation.handle(scope,String(text||'').replace(/^(?:@_user_\d+\s+)*/,''),messageId);
+  choices.remember(scope,route,{scope});choices.start();
   if(outcome.kind==='pass'){q.schedule(0);return false;}
   if(outcome.kind==='submit')for(const job of outcome.jobs)await q.submit(route,jobRequest(job,{scope}));
   if(outcome.text){try{await router.client.sendMessage(chatId,outcome.text);}catch(e){router.logErr?.('looklook 确认发送失败，任务仍保留：',String(e));}}
   await q.drain();return true;
  };
- handler.queue=q;handler.resume=async router=>{routerRef=router;await q.drain();};handler.stop=()=>q.stop();return handler;
+ handler.queue=q;handler.resume=async router=>{routerRef=router;choices.start();await choices.tick();await q.drain();};handler.stop=()=>{choices.stop();q.stop();};return handler;
 }
 function ensureHandler(router,httpRequest){
  const readSenders=()=>{const p=config().feishu_owner_file||resolve(homedir(),'Library/Application Support/looklook/feishu-owner.json');return config().feishu_allowed_senders||(existsSync(p)?JSON.parse(readFileSync(p,'utf8')).allowedSenders:[]);};
